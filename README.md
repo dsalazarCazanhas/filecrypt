@@ -1,8 +1,3 @@
-Claro — aquí tienes un `README.md` bien claro y en inglés para tu proyecto, incluyendo descripción, instalación rápida usando `uv`, y cómo compilar el ejecutable con `PyInstaller`:
-
----
-
-```markdown
 # 📦 filecrypt
 
 **filecrypt** is a standalone Python utility to compress and encrypt or decrypt files and directories.  
