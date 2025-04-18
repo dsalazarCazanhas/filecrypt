@@ -12,37 +12,74 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import padding
 import secrets
 
-# Tamaño de bloque para lectura/escritura
-CHUNK_SIZE = 64 * 1024  # 64 KB
+# Block size for reading/writing files (64 KB)
+CHUNK_SIZE = 64 * 1024  
 
-# Obtener timestamp y sistema para versionado
-def get_version_tag(file_name: str):
+def get_version_tag():
+    """
+    Generate a versioning tag based on the current timestamp and system platform.
+
+    Returns:
+        str: Tag string in the format 'MMDDYYYY_HHMMSS_platform'.
+    """
     now = datetime.now().strftime('%m%d%Y_%H%M%S')
     os_tag = platform.system().lower()
-    return f"{file_name}_{now}_{os_tag}"
+    return f"{now}_{os_tag}"
 
-# == Gestión de clave ==
+# == Key management ==
+
 def generate_key():
-    """Genera clave AES-256 aleatoria (32 bytes)."""
+    """
+    Generate a random 256-bit AES encryption key.
+
+    Returns:
+        bytes: A 32-byte random key.
+    """
     return secrets.token_bytes(32)
 
-def save_key(key: bytes, tag: str) -> str:
-    """Guarda clave en ruta temporal con versionado y retorna la ruta."""
+def save_key(key: bytes, tag: str, base_name: str) -> str:
+    """
+    Save the given key to a temporary file with a versioned filename.
+
+    Args:
+        key (bytes): AES key to save.
+        tag (str): Version tag for the filename.
+        base_name (str): Base name for the key file.
+
+    Returns:
+        str: Path to the saved key file.
+    """
     temp = tempfile.gettempdir()
-    key_filename = f"filecrypt_key_{tag}.key"
+    key_filename = f"{base_name}_{tag}.key"
     key_path = os.path.join(temp, key_filename)
     with open(key_path, 'wb') as f:
         f.write(key)
     return key_path
 
 def load_key(path: str) -> bytes:
-    """Carga clave desde archivo."""
+    """
+    Load an AES key from a file.
+
+    Args:
+        path (str): Path to the key file.
+
+    Returns:
+        bytes: The loaded key.
+    """
     with open(path, 'rb') as f:
         return f.read()
 
-# == Compresión ==
+# == Compression ==
+
 def compress(input_path: str, zip_path: str, show_progress: bool):
-    """Comprime archivo o directorio en ZIP."""
+    """
+    Compress a file or directory into a ZIP archive.
+
+    Args:
+        input_path (str): Path to the input file or directory.
+        zip_path (str): Path for the resulting ZIP file.
+        show_progress (bool): Whether to display progress during compression.
+    """
     if os.path.isfile(input_path):
         files = [input_path]
         base_dir = os.path.dirname(input_path)
@@ -58,11 +95,20 @@ def compress(input_path: str, zip_path: str, show_progress: bool):
             arcname = os.path.relpath(filepath, base_dir)
             zf.write(filepath, arcname)
             if show_progress:
-                print(f'[+] Comprimido {idx}/{total}: {arcname}')
+                print(f'[+] Compressed {idx}/{total}: {arcname}')
 
-# == Cifrado por bloques ==
+# == Block encryption ==
+
 def encrypt_file(input_path: str, output_path: str, key: bytes, show_progress: bool):
-    """Cifra archivo con AES-256-CBC en bloques y guarda IV al inicio."""
+    """
+    Encrypt a file using AES-256-CBC with PKCS7 padding. The IV is stored at the beginning of the output file.
+
+    Args:
+        input_path (str): Path to the input file.
+        output_path (str): Path to the encrypted output file.
+        key (bytes): AES encryption key.
+        show_progress (bool): Whether to display encryption progress.
+    """
     iv = secrets.token_bytes(16)
     cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
     encryptor = cipher.encryptor()
@@ -80,14 +126,23 @@ def encrypt_file(input_path: str, output_path: str, key: bytes, show_progress: b
             fout.write(enc)
             processed += len(chunk)
             if show_progress:
-                print(f'[+] Cifrando: {processed/total_size*100:.2f}%')
+                print(f'[+] Encrypting: {processed / total_size * 100:.2f}%')
         padded = padder.finalize()
         enc = encryptor.update(padded) + encryptor.finalize()
         fout.write(enc)
 
-# == Descifrado por bloques ==
+# == Block decryption ==
+
 def decrypt_file(input_path: str, output_path: str, key: bytes, show_progress: bool):
-    """Descifra archivo AES-256-CBC en bloques, espera IV al inicio."""
+    """
+    Decrypt a file encrypted with AES-256-CBC. The IV is expected to be stored at the beginning of the file.
+
+    Args:
+        input_path (str): Path to the encrypted file.
+        output_path (str): Path for the decrypted output file.
+        key (bytes): AES decryption key.
+        show_progress (bool): Whether to display decryption progress.
+    """
     with open(input_path, 'rb') as fin:
         iv = fin.read(16)
         cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
@@ -105,63 +160,68 @@ def decrypt_file(input_path: str, output_path: str, key: bytes, show_progress: b
                 fout.write(unp)
                 processed += len(chunk)
                 if show_progress:
-                    print(f'[+] Descifrando: {processed/total_size*100:.2f}%')
+                    print(f'[+] Decrypting: {processed / total_size * 100:.2f}%')
             dec = decryptor.finalize()
             unp = unpadder.update(dec) + unpadder.finalize()
             fout.write(unp)
 
-# == Decompresión ==
+# == Decompression ==
+
 def decompress(zip_path: str, output_dir: str, show_progress: bool):
-    """Extrae ZIP en carpeta."""
+    """
+    Extract the contents of a ZIP archive into a specified directory.
+
+    Args:
+        zip_path (str): Path to the ZIP archive.
+        output_dir (str): Destination directory.
+        show_progress (bool): Whether to display extraction progress.
+    """
     with zipfile.ZipFile(zip_path, 'r') as zf:
         members = zf.namelist()
         total = len(members)
         for idx, member in enumerate(members, 1):
             zf.extract(member, output_dir)
             if show_progress:
-                print(f'[+] Descomprimido {idx}/{total}: {member}')
+                print(f'[+] Extracted {idx}/{total}: {member}')
 
-# == Lógica principal ==
+# == Main program logic ==
+
 def main():
-    parser = argparse.ArgumentParser(description='filecrypt: comprime y cifra/descifra archivos y directorios')
+    """
+    Command-line interface for compressing and encrypting / decrypting and extracting files and directories.
+    """
+    parser = argparse.ArgumentParser(description='filecrypt: compress, encrypt/decrypt files and directories.')
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--encrypt', action='store_true', help='Modo cifrar')
-    group.add_argument('--decrypt', action='store_true', help='Modo descifrar')
-    parser.add_argument('-i', '--input', required=True, help='Ruta de entrada')
-    parser.add_argument('-o', '--output', help='Ruta de salida (archivo o carpeta). Si no se especifica, se usa el directorio actual')
-    parser.add_argument('-k', '--key', help='Archivo de clave o clave en hex (opcional para encrypt; obligatorio para decrypt)')
-    parser.add_argument('-p', '--progress', action='store_true', help='Mostrar progreso')
+    group.add_argument('--encrypt', action='store_true', help='Enable encryption mode.')
+    group.add_argument('--decrypt', action='store_true', help='Enable decryption mode.')
+    parser.add_argument('-i', '--input', required=True, help='Input file or directory path.')
+    parser.add_argument('-o', '--output', help='Output file or directory path. Defaults to the current directory.')
+    parser.add_argument('-k', '--key', help='Path to the key file or hex key string. Required for decryption.')
+    parser.add_argument('-p', '--progress', action='store_true', help='Show progress during operations.')
     args = parser.parse_args()
 
-    # Validar input
     if not os.path.exists(args.input):
-        print(f"Error: Ruta de entrada no existe: {args.input}")
+        print(f"Error: Input path does not exist: {args.input}")
         sys.exit(1)
 
-    # Tag para versionado
     tag = get_version_tag()
 
-    # Determinar ruta de salida
     if args.output:
         out_path = args.output
     else:
         out_path = os.getcwd()
+    base_name = Path(args.input).stem
     if os.path.isdir(out_path) or out_path.endswith(os.sep):
-        base_name = Path(args.input).stem
-        if args.encrypt:
-            default_name = f"{base_name}_{tag}_encrypted.bin"
-        else:
-            default_name = f"{base_name}_{tag}_decrypted.zip"
+        default_name = f"{base_name}_{tag}_encrypted.bin" if args.encrypt else f"{base_name}_{tag}_decrypted.zip"
         out_path = os.path.join(out_path, default_name)
     args.output = out_path
 
     if args.encrypt:
         tmp_zip = os.path.join(tempfile.gettempdir(), f'filecrypt_temp_{tag}.zip')
-        print('[*] Iniciando compresión...')
+        print('[*] Starting compression...')
         compress(args.input, tmp_zip, args.progress)
-        print(f'[*] Comprimido a: {tmp_zip}')
+        print(f'[*] Compressed to: {tmp_zip}')
 
-        # Gestionar clave
         if args.key:
             if os.path.isfile(args.key):
                 key = load_key(args.key)
@@ -169,24 +229,23 @@ def main():
             else:
                 try:
                     key = bytes.fromhex(args.key)
-                    key_path = save_key(key, tag)
+                    key_path = save_key(key, tag, base_name)
                 except ValueError:
-                    print('Error: clave hex inválida')
+                    print('Error: Invalid hex key format.')
                     sys.exit(1)
         else:
             key = generate_key()
-            key_path = save_key(key, tag)
-        print(f'[*] Clave en: {key_path}')
+            key_path = save_key(key, tag, base_name)
+        print(f'[*] Key saved to: {key_path}')
 
-        print('[*] Iniciando cifrado...')
+        print('[*] Starting encryption...')
         encrypt_file(tmp_zip, args.output, key, args.progress)
-        print(f'[*] Archivo cifrado: {args.output}')
+        print(f'[*] Encrypted file: {args.output}')
         os.remove(tmp_zip)
 
-    else:  # decrypt
-        # Clave obligatoria
+    else:
         if not args.key:
-            print('Error: se requiere --key para descifrar')
+            print('Error: --key is required for decryption.')
             sys.exit(1)
         if os.path.isfile(args.key):
             key = load_key(args.key)
@@ -194,17 +253,17 @@ def main():
             try:
                 key = bytes.fromhex(args.key)
             except ValueError:
-                print('Error: clave hex inválida')
+                print('Error: Invalid hex key format.')
                 sys.exit(1)
 
         tmp_zip = os.path.join(tempfile.gettempdir(), f'filecrypt_temp_dec_{tag}.zip')
-        print('[*] Iniciando descifrado...')
+        print('[*] Starting decryption...')
         decrypt_file(args.input, tmp_zip, key, args.progress)
-        print(f'[*] ZIP descifrado: {tmp_zip}')
+        print(f'[*] Decrypted ZIP: {tmp_zip}')
 
-        print('[*] Iniciando descompresión...')
+        print('[*] Starting extraction...')
         decompress(tmp_zip, args.output, args.progress)
-        print(f'[*] Archivos extraídos en: {args.output}')
+        print(f'[*] Files extracted to: {args.output}')
         os.remove(tmp_zip)
 
 if __name__ == '__main__':
