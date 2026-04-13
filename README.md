@@ -80,8 +80,3 @@ Dependencies are listed in `pyproject.toml`.
 
 - Linux
 - Windows
-
----
-
-## 📜 License
-...
